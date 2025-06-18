@@ -2,7 +2,7 @@
   "name": "reid-viewer",
   "displayName": "ReID Viewer",
   "description": "ReID visualization tool with cosine similarity display",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "local",
   "repository": {
     "type": "git",

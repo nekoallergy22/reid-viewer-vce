@@ -178,8 +178,8 @@ function getWebviewContent(imageFiles, dirPath, similarityData, webview, extensi
         }
         .dual-viewer {
             display: flex;
-            gap: 15px;
-            height: 400px;
+            gap: 20px;
+            min-height: 500px;
         }
         .viewer-panel {
             flex: 1;
@@ -188,11 +188,13 @@ function getWebviewContent(imageFiles, dirPath, similarityData, webview, extensi
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            height: 450px;
         }
         .viewer-header {
-            padding: 6px 8px;
+            padding: 8px 10px;
             background-color: #3a3a3a;
             border-bottom: 1px solid #444;
+            flex-shrink: 0;
         }
         .viewer-title {
             font-size: 16px;
@@ -208,29 +210,29 @@ function getWebviewContent(imageFiles, dirPath, similarityData, webview, extensi
             font-weight: normal;
         }
         .viewer-content {
-            flex: 1;
             display: flex;
             flex-direction: column;
+            height: 100%;
         }
         .controls {
-            padding: 6px 8px;
+            padding: 8px 10px;
             background-color: #3a3a3a;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+            flex-shrink: 0;
         }
         .image-display {
-            flex: 1;
             display: flex;
             align-items: center;
             justify-content: center;
-            height: 280px;
+            height: 350px;
             background-color: #1e1e1e;
             position: relative;
         }
         .main-image {
-            max-width: 75%;
-            max-height: 75%;
+            max-width: 90%;
+            max-height: 90%;
             object-fit: contain;
             border-radius: 4px;
         }
@@ -239,10 +241,11 @@ function getWebviewContent(imageFiles, dirPath, similarityData, webview, extensi
             font-size: 14px;
         }
         .image-info {
-            padding: 6px 8px;
+            padding: 8px 10px;
             background-color: #3a3a3a;
             font-size: 12px;
             color: #ccc;
+            flex-shrink: 0;
         }
         .similarity-graph {
             margin: 6px 0;
