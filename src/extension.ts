@@ -24,16 +24,17 @@ export function activate(context: vscode.ExtensionContext) {
             dirPath = dirUri[0].fsPath;
         }
 
-        const imagesDir = path.join(dirPath, 'images');
-        const csvPath = path.join(dirPath, 'cos_similarity.csv');
-        
-        if (!fs.existsSync(imagesDir)) {
-            vscode.window.showErrorMessage('No "images" subdirectory found in the selected directory');
+        // Find images directory (prefer 'images', otherwise use single subdirectory with images)
+        const imagesDir = findImagesDirectory(dirPath);
+        if (!imagesDir) {
+            vscode.window.showErrorMessage('No images directory found. Either create an "images" subdirectory or ensure there is only one subdirectory containing image files.');
             return;
         }
 
-        if (!fs.existsSync(csvPath)) {
-            vscode.window.showErrorMessage('No "cos_similarity.csv" file found in the selected directory');
+        // Find CSV file (prefer 'cos_similarity.csv', otherwise use single CSV file)
+        const csvPath = findCsvFile(dirPath);
+        if (!csvPath) {
+            vscode.window.showErrorMessage('No CSV file found. Either create a "cos_similarity.csv" file or ensure there is only one CSV file in the directory.');
             return;
         }
 
@@ -56,9 +57,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         // Load cosine similarity data
-        const similarityData = loadSimilarityData(csvPath);
+        const { similarityData, useIndexMapping } = loadSimilarityDataWithMapping(csvPath, imageFiles.length);
 
-        panel.webview.html = getWebviewContent(imageFiles, imagesDir, similarityData, panel.webview, context.extensionUri);
+        panel.webview.html = getWebviewContent(imageFiles, imagesDir, similarityData, useIndexMapping, panel.webview, context.extensionUri);
 
         panel.webview.onDidReceiveMessage(
             message => {
@@ -74,6 +75,56 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     context.subscriptions.push(disposable);
+}
+
+function findImagesDirectory(dirPath: string): string | null {
+    try {
+        // First, check if 'images' directory exists (preferred)
+        const imagesDir = path.join(dirPath, 'images');
+        if (fs.existsSync(imagesDir) && fs.statSync(imagesDir).isDirectory()) {
+            return imagesDir;
+        }
+
+        // If no 'images' directory, look for a single subdirectory with image files
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        const subdirectories = entries.filter(entry => entry.isDirectory());
+
+        if (subdirectories.length === 1) {
+            const singleSubdir = path.join(dirPath, subdirectories[0].name);
+            const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+            const imageFiles = getImageFiles(singleSubdir, imageExtensions);
+            
+            if (imageFiles.length > 0) {
+                return singleSubdir;
+            }
+        }
+
+        return null;
+    } catch (error) {
+        return null;
+    }
+}
+
+function findCsvFile(dirPath: string): string | null {
+    try {
+        // First, check if 'cos_similarity.csv' exists (preferred)
+        const preferredCsvPath = path.join(dirPath, 'cos_similarity.csv');
+        if (fs.existsSync(preferredCsvPath)) {
+            return preferredCsvPath;
+        }
+
+        // If no preferred CSV file, look for a single CSV file
+        const entries = fs.readdirSync(dirPath);
+        const csvFiles = entries.filter(file => path.extname(file).toLowerCase() === '.csv');
+
+        if (csvFiles.length === 1) {
+            return path.join(dirPath, csvFiles[0]);
+        }
+
+        return null;
+    } catch (error) {
+        return null;
+    }
 }
 
 function getImageFiles(dirPath: string, extensions: string[]): string[] {
@@ -101,15 +152,27 @@ function getImageFiles(dirPath: string, extensions: string[]): string[] {
     }
 }
 
-function loadSimilarityData(csvPath: string): Map<string, Map<string, number>> {
+function loadSimilarityDataWithMapping(csvPath: string, expectedImageCount: number): { similarityData: Map<string, Map<string, number>>, useIndexMapping: boolean } {
     try {
         const csvContent = fs.readFileSync(csvPath, 'utf-8');
-        const lines = csvContent.split('\n');
+        const lines = csvContent.split('\n').filter(line => line.trim());
         const headers = lines[0].split(',').slice(1); // Remove first empty column
+        
+        console.log('CSV Headers count:', headers.length, 'Expected image count:', expectedImageCount);
+        
+        // Check if CSV dimensions match image count
+        const csvRowCount = lines.length - 1; // Exclude header row
+        const csvColCount = headers.length;
+        
+        if (csvRowCount !== expectedImageCount || csvColCount !== expectedImageCount) {
+            console.warn(`CSV dimensions (${csvRowCount}x${csvColCount}) don't match image count (${expectedImageCount})`);
+            // Continue processing but with a warning
+        }
         
         const similarityMap = new Map<string, Map<string, number>>();
         
-        console.log('CSV Headers:', headers.slice(0, 10)); // Debug: show first 10 headers
+        // Use index-based mapping when names don't match
+        const useIndexMapping = csvRowCount === expectedImageCount && csvColCount === expectedImageCount;
         
         for (let i = 1; i < lines.length; i++) {
             const line = lines[i].trim();
@@ -118,34 +181,37 @@ function loadSimilarityData(csvPath: string): Map<string, Map<string, number>> {
             const values = line.split(',');
             if (values.length < 2) continue;
             
-            const rowImage = values[0];
+            // Use index-based key if dimensions match, otherwise use original row name
+            const rowKey = useIndexMapping ? `image_${i-1}` : values[0];
             const similarities = new Map<string, number>();
             
             for (let j = 1; j < values.length && j <= headers.length; j++) {
-                const colImage = headers[j - 1];
+                // Use index-based key if dimensions match, otherwise use original column name
+                const colKey = useIndexMapping ? `image_${j-1}` : headers[j - 1];
                 const similarity = parseFloat(values[j]);
                 if (!isNaN(similarity)) {
-                    similarities.set(colImage, similarity);
+                    similarities.set(colKey, similarity);
                 }
             }
             
-            similarityMap.set(rowImage, similarities);
+            similarityMap.set(rowKey, similarities);
             
             // Debug: log first few entries
             if (i <= 3) {
-                console.log(`Row ${rowImage}:`, Array.from(similarities.entries()).slice(0, 5));
+                console.log(`Row ${rowKey}:`, Array.from(similarities.entries()).slice(0, 5));
             }
         }
         
-        console.log('Loaded similarity data for', similarityMap.size, 'images');
-        return similarityMap;
+        console.log('Loaded similarity data for', similarityMap.size, 'entries');
+        console.log('Using index-based mapping:', useIndexMapping);
+        return { similarityData: similarityMap, useIndexMapping };
     } catch (error) {
         console.error('Error loading similarity data:', error);
-        return new Map();
+        return { similarityData: new Map(), useIndexMapping: false };
     }
 }
 
-function getWebviewContent(imageFiles: string[], dirPath: string, similarityData: Map<string, Map<string, number>>, webview: vscode.Webview, extensionUri: vscode.Uri): string {
+function getWebviewContent(imageFiles: string[], dirPath: string, similarityData: Map<string, Map<string, number>>, useIndexMapping: boolean, webview: vscode.Webview, extensionUri: vscode.Uri): string {
     const imageData = imageFiles.map((filename, index) => {
         const imgPath = path.join(dirPath, filename);
         const imgUri = webview.asWebviewUri(vscode.Uri.file(imgPath));
@@ -437,6 +503,7 @@ function getWebviewContent(imageFiles: string[], dirPath: string, similarityData
     <script>
         const vscode = acquireVsCodeApi();
         const imageData = ${JSON.stringify(imageData)};
+        const useIndexMapping = ${useIndexMapping};
         
         // Convert Map to plain object properly
         const similarityDataObj = {};
@@ -569,7 +636,7 @@ function getWebviewContent(imageFiles: string[], dirPath: string, similarityData
             }
             
             const leftImage = imageData[leftIndex];
-            const leftKey = getImageKey(leftImage.baseName);
+            const leftKey = getImageKey(leftImage.baseName, leftIndex);
             
             graphData = [];
             let minVal = 1;
@@ -578,7 +645,7 @@ function getWebviewContent(imageFiles: string[], dirPath: string, similarityData
             // Generate graph data for all images
             for (let i = 0; i < imageData.length; i++) {
                 const rightImage = imageData[i];
-                const rightKey = getImageKey(rightImage.baseName);
+                const rightKey = getImageKey(rightImage.baseName, i);
                 
                 let similarity = null;
                 if (similarityData[leftKey] && similarityData[leftKey][rightKey] !== undefined) {
@@ -703,8 +770,8 @@ function getWebviewContent(imageFiles: string[], dirPath: string, similarityData
             
             // Try to find similarity in the data
             // Convert filename to match CSV format (e.g., "image1.jpg" -> "Image_1")
-            const leftKey = getImageKey(leftImage.baseName);
-            const rightKey = getImageKey(rightImage.baseName);
+            const leftKey = getImageKey(leftImage.baseName, leftIndex);
+            const rightKey = getImageKey(rightImage.baseName, rightIndex);
             
             console.log('Looking up similarity:', leftKey, 'vs', rightKey);
             
@@ -747,9 +814,16 @@ function getWebviewContent(imageFiles: string[], dirPath: string, similarityData
             }
         }
         
-        function getImageKey(baseName) {
+        function getImageKey(baseName, imageIndex) {
             // Debug: log the baseName being processed
-            console.log('Processing baseName:', baseName);
+            console.log('Processing baseName:', baseName, 'at index:', imageIndex);
+            
+            // If using index-based mapping, use the index directly
+            if (useIndexMapping) {
+                const key = \`image_\${imageIndex}\`;
+                console.log('Using index-based key:', key);
+                return key;
+            }
             
             // Try to extract number from filename and convert to Image_X format
             const match = baseName.match(/(\d+)/);

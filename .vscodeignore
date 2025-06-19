@@ -9,5 +9,6 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 sample_data/**
+sample_data_t/**
 .claude/**
 *.vsix
